@@ -1,0 +1,221 @@
+; Limited sizes to fit the AMM data model
+int32 = (-2147483648 .. 2147483647) .within int
+uint32 = uint .le 4294967295
+int64 = (-9223372036854775808 .. 9223372036854775807) .within int
+uint64 = uint
+
+; Restricted identifier text
+id-text = tstr .regexp "!?[A-Za-z_][A-Za-z0-9_\\-\\.]*"
+; Restricted identifier enumerations
+id-int = int32
+
+
+ari = lit-ari / objref-ari / nsref-ari / relref-ari
+
+
+lit-ari = lit-typeval / lit-notype
+
+; undefined value is only allowed as non-typed literal
+lit-notype = undefined / null / bool / (int64 / uint64)
+           / float / tstr / bstr
+
+lit-typeval = $lit-typeval .within lit-typeval-struct
+lit-typeval-struct = [
+  lit-type: lit-type-id,
+  lit-value: any
+]
+lit-type-id = (int32 .ge 0)
+
+
+$lit-typeval /= [0, null]
+
+
+$lit-typeval /= [1, bool]
+
+
+$lit-typeval /= [2, uint .size 1] ; 1-byte
+$lit-typeval /= [4, int32] ; 4-byte
+$lit-typeval /= [5, uint32] ; 4-byte
+$lit-typeval /= [6, int64] ; 8-byte
+$lit-typeval /= [7, uint64] ; 8-byte
+
+
+$lit-typeval /= [8, float16 / float32]
+$lit-typeval /= [9, float16 / float32 / float64]
+
+
+$lit-typeval /= [10, tstr]
+$lit-typeval /= [11, bstr]
+
+
+; Absolute timestamp as seconds from DTN Epoch
+$lit-typeval /= [12, lit-time]
+; Relative time interval as seconds
+$lit-typeval /= [13, lit-time]
+
+lit-time = int / time-fraction
+time-fraction = [
+  exp: (-9 .. 9) .within int,
+  mantissa: int64,
+]
+
+
+$lit-typeval /= [14, lit-label]
+lit-label = id-int / id-text
+
+
+$lit-typeval /= [15, lit-cbor]
+lit-cbor = bstr .cbor any
+
+
+$lit-typeval /= [16, lit-label]
+
+
+$lit-typeval /= [24, lit-objpat]
+lit-objpat = [
+  org-id: objpat-item,
+  model-id: objpat-item,
+  type-id: objpat-item,
+  obj-id: objpat-item
+]
+objpat-item = objpat-wildcard / objpat-single / objpat-range
+
+objpat-wildcard = true
+objpat-single = id-int / id-text
+
+; Intervals are in-order because widths cannot be negative
+objpat-range = [
+  ; least included value (or domain minimum)
+  least: id-int / null,
+  * (
+    ; width of included interval
+    incl: id-width
+    ; width of excluded interval
+    excl: id-width
+  ),
+  ; Width of last included interval (or domain maximum)
+  incl: id-width / null
+]
+id-width = uint32
+
+
+$lit-typeval /= [17, ari-collection]
+ari-collection = [*ari]
+
+
+$lit-typeval /= [18, ari-map]
+ari-map-key = lit-notype
+ari-map = {*ari-map-key => ari}
+
+
+$lit-typeval /= [19, ari-tbl]
+ari-tbl = [
+  ncol: uint, ; Number of columns in the table
+  *ari
+]
+
+
+$lit-typeval /= lit-execset
+lit-execset = [20, exec-set]
+exec-set = [
+  nonce,
+  exec-targets,
+]
+nonce = null / uint / bstr
+; Valid target types are defined by the AMM
+exec-targets = (*ari)
+
+
+$lit-typeval /= lit-rptset
+lit-rptset = [21, rpt-set]
+rpt-set = [
+  nonce,
+  ref-time: lit-time,
+  * rpt-container
+]
+rpt-container = [
+  rel-time: lit-time,
+  source: objref-ari,
+  rpt-items
+]
+rpt-items = (* ari)
+
+
+; Type-agnostic object reference
+objref-ari = $objref-ari .within ref-ari-struct
+
+; General structure of any reference
+ref-ari-struct = [
+  org-id / null,
+  (
+    model-id,
+    ? model-rev
+  ) / null,
+  obj-type-id / null,
+  obj-id / null,
+  ?params
+]
+
+; Identifier for a single object
+obj-ident<obj-type> = (
+  org-id,
+  model-id,
+  ? model-rev,
+  obj-type,
+  obj-id,
+)
+
+org-id = id-int / id-text
+model-id = id-int / id-text
+model-rev = #6.1004(tstr) ; from RFC 8943
+obj-type-id = (id-int .lt 0) / id-text
+obj-id = (id-int .ge 0) / id-text
+
+params = ari-collection / ari-map
+
+; Generic usable for restricting objref-ari by type
+objref-type<obj-type> = [
+  obj-ident<obj-type>,
+  ?params
+]
+
+; IANA-assigned object types
+IDENT = -1
+$objref-ari /= objref-type<IDENT>
+CONST = -2
+$objref-ari /= objref-type<CONST>
+CTRL = -3
+$objref-ari /= objref-type<CTRL>
+EDD = -4
+$objref-ari /= objref-type<EDD>
+OPER = -6
+$objref-ari /= objref-type<OPER>
+SBR = -8
+$objref-ari /= objref-type<SBR>
+TBR = -10
+$objref-ari /= objref-type<TBR>
+VAR = -11
+$objref-ari /= objref-type<VAR>
+TYPEDEF = -12
+$objref-ari /= objref-type<TYPEDEF>
+
+
+nsref-ari = [
+  org-id,
+  model-id,
+  ? model-rev,
+  null,
+  null
+] .within ref-ari-struct
+
+
+relref-ari = [
+  null,
+  (
+    model-id,
+    ? model-rev,
+  ) / null,
+  obj-type-id,
+  obj-id,
+  ?params
+] .within ref-ari-struct
